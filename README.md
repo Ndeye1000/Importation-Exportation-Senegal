@@ -66,4 +66,33 @@ JOIN mois mo ON mo.mois_id = m.mois_id
 WHERE cp.nom = 'CEREALES' AND f.nom = 'Importations'
 GROUP BY mo.annee
 ORDER BY mo.annee;
+
+-- Nombre de catégories de produits distinctes
+SELECT COUNT(*) FROM categorie_produit;
+
+-- Nombre de mois distincts (devrait être 132 : 11 ans × 12 mois)
+SELECT COUNT(*) FROM mois;
+
+-- Vérifier les 2 flux
+SELECT * FROM flux;
+
+-- Exemple : total exporté par catégorie, tous mois confondus
+SELECT cp.nom, SUM(m.valeur) AS total
+FROM mouvement m
+JOIN flux f ON f.flux_id = m.flux_id
+JOIN categorie_produit cp ON cp.categorie_id = m.categorie_id
+WHERE f.nom = 'Exportations'
+GROUP BY cp.nom
+ORDER BY total DESC
+LIMIT 10;
+
+-- Exemple : évolution mensuelle des exportations totales
+SELECT mo.annee, mo.mois, SUM(m.valeur) AS total
+FROM mouvement m
+JOIN flux f ON f.flux_id = m.flux_id
+JOIN mois mo ON mo.mois_id = m.mois_id
+WHERE f.nom = 'Exportations'
+GROUP BY mo.annee, mo.mois
+ORDER BY mo.annee, mo.mois;
 ```
+
