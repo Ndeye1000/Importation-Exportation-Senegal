@@ -13,21 +13,25 @@ Les données proviennent de deux fichiers Excel (source : ANSD — Agence Nation
 
 Ces deux fichiers étaient au format "large" (un mois par colonne). Les données ont été dépivotées (`melt`) puis normalisées dans un schéma relationnel pour faciliter les requêtes et l'analyse.
 
-## 🗂️ Structure de la base
+## 🗂️ Structure de la base (v2)
 
 ```
-flux ──────────────┐
-                    ├──> mouvement ──> categorie_produit
-mois ───────────────┤
-                    └──> mouvement_pays ──> pays
+flux ───────────────┐
+                     ├──> mouvement ──> categorie_produit
+mois ────────────────┤
+annee ───────────────┤
+                     └──> mouvement_pays ──> pays
 ```
 
 - **`flux`** — Référentiel des sens d'échange (`Exportations` / `Importations`)
 - **`categorie_produit`** — Référentiel des 96 catégories de produits (nomenclature douanière)
 - **`pays`** — Référentiel des 186 pays partenaires commerciaux
-- **`mois`** — Référentiel temporel (mois + année, 132 entrées : 2015-2025)
-- **`mouvement`** — Table de faits : volumes en tonnes par flux × catégorie de produit × mois (25 344 lignes)
-- **`mouvement_pays`** — Table de faits : valeurs en millions FCFA par flux × pays × mois (49 104 lignes)
+- **`mois`** — Référentiel des mois, valeurs uniques (`Jan` à `Dec`, 12 lignes)
+- **`annee`** — Référentiel des années (2015 à 2025, 11 lignes)
+- **`mouvement`** — Table de faits : volumes en tonnes (`valeur_tonnes`) par flux × catégorie de produit × mois × année (25 344 lignes)
+- **`mouvement_pays`** — Table de faits : valeurs en millions FCFA (`valeur_millions_fcfa`) par flux × pays × mois × année (49 104 lignes)
+
+> **v2 vs v1** : `mois` et `annee` sont désormais deux référentiels indépendants (au lieu d'une table `mois` combinant les deux), et l'unité de mesure est portée directement dans le nom de la colonne (`valeur_tonnes` / `valeur_millions_fcfa`) plutôt que stockée en tant que valeur constante répétée sur chaque ligne (colonne `unite` supprimée).
 
 Le schéma complet est disponible dans [`schema.sql`](./schema.sql).
 
@@ -54,30 +58,33 @@ sqlite3 import_export_senegal.db < schema.sql
 
 Puis importer les données depuis les fichiers CSV ou Excel sources avec le script Python d'import (dépivotage + insertion).
 
-## 🔍 Exemple de requête
+## 🔍 Exemples de requêtes
 
 ```sql
 -- Évolution annuelle des importations de céréales
-SELECT mo.annee, SUM(m.valeur) AS total_tonnes
+SELECT a.annee, SUM(m.valeur_tonnes) AS total_tonnes
 FROM mouvement m
 JOIN flux f ON f.flux_id = m.flux_id
 JOIN categorie_produit cp ON cp.categorie_id = m.categorie_id
-JOIN mois mo ON mo.mois_id = m.mois_id
+JOIN annee a ON a.annee_id = m.annee_id
 WHERE cp.nom = 'CEREALES' AND f.nom = 'Importations'
-GROUP BY mo.annee
-ORDER BY mo.annee;
+GROUP BY a.annee
+ORDER BY a.annee;
 
 -- Nombre de catégories de produits distinctes
 SELECT COUNT(*) FROM categorie_produit;
 
--- Nombre de mois distincts (devrait être 132 : 11 ans × 12 mois)
+-- Nombre de mois distincts (devrait être 12)
 SELECT COUNT(*) FROM mois;
+
+-- Nombre d'années distinctes (devrait être 11 : 2015 à 2025)
+SELECT COUNT(*) FROM annee;
 
 -- Vérifier les 2 flux
 SELECT * FROM flux;
 
--- Exemple : total exporté par catégorie, tous mois confondus
-SELECT cp.nom, SUM(m.valeur) AS total
+-- Total exporté par catégorie, tous mois/années confondus (top 10)
+SELECT cp.nom, SUM(m.valeur_tonnes) AS total
 FROM mouvement m
 JOIN flux f ON f.flux_id = m.flux_id
 JOIN categorie_produit cp ON cp.categorie_id = m.categorie_id
@@ -86,13 +93,19 @@ GROUP BY cp.nom
 ORDER BY total DESC
 LIMIT 10;
 
--- Exemple : évolution mensuelle des exportations totales
-SELECT mo.annee, mo.mois, SUM(m.valeur) AS total
+-- Évolution mensuelle des exportations totales
+SELECT a.annee, mo.nom AS mois, SUM(m.valeur_tonnes) AS total
 FROM mouvement m
 JOIN flux f ON f.flux_id = m.flux_id
 JOIN mois mo ON mo.mois_id = m.mois_id
+JOIN annee a ON a.annee_id = m.annee_id
 WHERE f.nom = 'Exportations'
-GROUP BY mo.annee, mo.mois
-ORDER BY mo.annee, mo.mois;
+GROUP BY a.annee, mo.nom
+ORDER BY a.annee,
+  CASE mo.nom
+    WHEN 'Jan' THEN 1 WHEN 'Feb' THEN 2 WHEN 'Mar' THEN 3
+    WHEN 'Apr' THEN 4 WHEN 'May' THEN 5 WHEN 'Jun' THEN 6
+    WHEN 'Jul' THEN 7 WHEN 'Aug' THEN 8 WHEN 'Sep' THEN 9
+    WHEN 'Oct' THEN 10 WHEN 'Nov' THEN 11 WHEN 'Dec' THEN 12
+  END;
 ```
-
